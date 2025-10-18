@@ -3,19 +3,13 @@ import jwt
 import time
 from flask import Flask, request, redirect
 import requests
-from cachelib import RedisCache
+from cachelib import SimpleCache
 from dotenv import load_dotenv
 
 load_dotenv()
 
 app = Flask(__name__)
-
-# Configure Redis from environment variables
-REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
-REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
-REDIS_DB = int(os.getenv("REDIS_DB", 0))
-
-cache = RedisCache(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB)
+cache = SimpleCache()
 
 def get_secret(secret_name, default=None):
     try:
@@ -126,4 +120,4 @@ def logout():
     return "Logged out", 200
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run()

@@ -6,4 +6,3 @@ cachelib
 pytest
 pytest-mock
 gunicorn
-redis

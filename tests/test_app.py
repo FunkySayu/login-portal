@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch, MagicMock
 import jwt
 import time
-from src.app import app
+from src.app import app, cache
 
 class TestApp(unittest.TestCase):
 
@@ -12,19 +12,19 @@ class TestApp(unittest.TestCase):
         self.client_id_patcher = patch('src.app.DISCORD_CLIENT_ID', 'test_id')
         self.client_secret_patcher = patch('src.app.DISCORD_CLIENT_SECRET', 'test_secret')
         self.allowed_hosts_patcher = patch('src.app.ALLOWED_HOSTS', ['example.com', 'test.com'])
-        self.cache_patcher = patch('src.app.cache', MagicMock())
 
         self.mock_client_id = self.client_id_patcher.start()
         self.mock_client_secret = self.client_secret_patcher.start()
         self.mock_allowed_hosts = self.allowed_hosts_patcher.start()
-        self.mock_cache = self.cache_patcher.start()
+
+        # Clear the cache before each test
+        cache.clear()
 
 
     def tearDown(self):
         self.client_id_patcher.stop()
         self.client_secret_patcher.stop()
         self.allowed_hosts_patcher.stop()
-        self.cache_patcher.stop()
 
     def test_login_valid_host(self):
         response = self.app.get('/login?host=example.com&back=/foo')
@@ -66,19 +66,18 @@ class TestApp(unittest.TestCase):
             'test_secret',
             algorithm="HS256",
         )
-        self.mock_cache.get.return_value = None
         response = self.app.get(f'/validate?token={token}&host=example.com')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data, b'OK')
-        self.mock_cache.set.assert_called_once_with(f"{token}:example.com", "OK", timeout=600)
+        self.assertEqual(cache.get(f"{token}:example.com"), "OK")
+
 
     def test_validate_valid_token_cached(self):
         token = "cached_token"
-        self.mock_cache.get.return_value = "OK"
+        cache.set(f"{token}:example.com", "OK")
         response = self.app.get(f'/validate?token={token}&host=example.com')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data, b'OK')
-        self.mock_cache.get.assert_called_once_with(f"{token}:example.com")
 
 
     def test_validate_invalid_host_for_token(self):
@@ -87,7 +86,6 @@ class TestApp(unittest.TestCase):
             'test_secret',
             algorithm="HS256",
         )
-        self.mock_cache.get.return_value = None
         response = self.app.get(f'/validate?token={token}&host=another.com')
         self.assertEqual(response.status_code, 401)
         self.assertEqual(response.data, b'Invalid host for this token')
@@ -98,13 +96,11 @@ class TestApp(unittest.TestCase):
             'test_secret',
             algorithm="HS256",
         )
-        self.mock_cache.get.return_value = None
         response = self.app.get(f'/validate?token={token}&host=example.com')
         self.assertEqual(response.status_code, 401)
         self.assertEqual(response.data, b'Expired token')
 
     def test_validate_invalid_token(self):
-        self.mock_cache.get.return_value = None
         response = self.app.get('/validate?token=invalid_token&host=example.com')
         self.assertEqual(response.status_code, 401)
         self.assertEqual(response.data, b'Invalid token')
@@ -116,6 +112,7 @@ class TestApp(unittest.TestCase):
             'test_secret',
             algorithm="HS256",
         )
+        cache.set(f"{token}:example.com", "OK")
         response = self.app.get(f'/logout?token={token}')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data, b'Logged out')
@@ -128,7 +125,7 @@ class TestApp(unittest.TestCase):
             },
             headers={'Content-Type': 'application/x-www-form-urlencoded'}
         )
-        self.mock_cache.delete.assert_called_once_with(f"{token}:example.com")
+        self.assertIsNone(cache.get(f"{token}:example.com"))
 
 
 if __name__ == '__main__':
