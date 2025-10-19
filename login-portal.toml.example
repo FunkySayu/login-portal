@@ -1,0 +1,29 @@
+# Login portal configuration.
+#
+# Save it to docker before running the stack.
+# docker config create login_portal_config login-portal.toml
+
+# General server configuration
+[server]
+port = 5000
+# Host the server is being served on. This is used when
+# building OAuth2 redirect flow to Discord.
+host = "login.example.com"
+log_level = "INFO"
+
+# Host configuration.
+#
+# Each entries to this table configures a specific host the
+# server will allow, and what are restrictions the user must
+# comply to for a successful login.
+#
+# Empty host configuration will allow any users authenticated
+# using discord.
+[hosts]
+
+# Example website.
+[hosts."some-website.example.com"]
+# See: https://support.discord.com/hc/en-us/articles/206346498-Where-can-I-find-my-User-Server-Message-ID
+allowed_discord_user_ids = [
+  112233445566778899
+]

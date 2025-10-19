@@ -1,5 +1,7 @@
 #-*- mode: git-ignore -*-
 
+login-portal.toml
+
 # Python
 __pycache__/
 *.py[cod]
