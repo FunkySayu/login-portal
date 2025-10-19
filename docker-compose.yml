@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  login-portal:
+    image: login-portal:latest
+
+    ports:
+      - "3322:5000"
+    secrets:
+      - discord_client_id
+      - discord_client_secret
+    configs:
+      - source: login_portal_config
+        target: /app/login-portal.toml
+
+secrets:
+  discord_client_id:
+    external: true
+  discord_client_secret:
+    external: true
+
+configs:
+  login_portal_config:
+    external: true
