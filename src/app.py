@@ -1,15 +1,25 @@
 import os
 import jwt
 import time
-from flask import Flask, request, redirect
+from flask import Flask, request, redirect, url_for
 import requests
 from cachelib import SimpleCache
-from dotenv import load_dotenv
-
-load_dotenv()
+import toml
+import argparse
+import logging
 
 app = Flask(__name__)
 cache = SimpleCache()
+
+DISCORD_CLIENT_ID = None
+DISCORD_CLIENT_SECRET = None
+ALLOWED_HOSTS = None
+DISCORD_API_BASE_URL = "https://discord.com/api"
+
+def load_config(config_path: str) -> dict:
+    """Loads the configuration from a TOML file."""
+    with open(config_path, 'r') as f:
+        return toml.load(f)
 
 def get_secret(secret_name, default=None):
     try:
@@ -18,12 +28,6 @@ def get_secret(secret_name, default=None):
     except IOError:
         return os.getenv(secret_name.upper(), default)
 
-DISCORD_CLIENT_ID = get_secret("discord_client_id")
-DISCORD_CLIENT_SECRET = get_secret("discord_client_secret")
-DISCORD_REDIRECT_URI = os.getenv("DISCORD_REDIRECT_URI", "http://localhost:5000/callback")
-ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "").split(",")
-DISCORD_API_BASE_URL = "https://discord.com/api"
-
 @app.route("/login")
 def login():
     host = request.args.get("host")
@@ -31,8 +35,9 @@ def login():
         return "Invalid host", 400
     back = request.args.get("back")
     state = f"{host}|{back}"
+    redirect_uri = url_for('callback', _external=True)
     return redirect(
-        f"{DISCORD_API_BASE_URL}/oauth2/authorize?client_id={DISCORD_CLIENT_ID}&redirect_uri={DISCORD_REDIRECT_URI}&response_type=code&scope=identify&state={state}"
+        f"{DISCORD_API_BASE_URL}/oauth2/authorize?client_id={DISCORD_CLIENT_ID}&redirect_uri={redirect_uri}&response_type=code&scope=identify&state={state}"
     )
 
 @app.route("/callback")
@@ -43,12 +48,13 @@ def callback():
     if host not in ALLOWED_HOSTS:
         return "Invalid host", 400
 
+    redirect_uri = url_for('callback', _external=True)
     data = {
         "client_id": DISCORD_CLIENT_ID,
         "client_secret": DISCORD_CLIENT_SECRET,
         "grant_type": "authorization_code",
         "code": code,
-        "redirect_uri": DISCORD_REDIRECT_URI,
+        "redirect_uri": redirect_uri,
         "scope": "identify",
     }
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
@@ -120,4 +126,18 @@ def logout():
     return "Logged out", 200
 
 if __name__ == "__main__":
-    app.run()
+    parser = argparse.ArgumentParser(description='Login Portal')
+    parser.add_argument('--config', type=str, required=True, help='Path to the configuration file')
+    args = parser.parse_args()
+
+    config = load_config(args.config)
+
+    logging.basicConfig(level=config['server']['log_level'])
+
+    DISCORD_CLIENT_ID = get_secret("discord_client_id")
+    DISCORD_CLIENT_SECRET = get_secret("discord_client_secret")
+    ALLOWED_HOSTS = list(config.get('hosts', {}).keys())
+
+    app.config['SERVER_NAME'] = f"{config['server']['host']}:{config['server']['port']}"
+
+    app.run(host='127.0.0.1', port=config['server']['port'])

@@ -2,35 +2,59 @@ import unittest
 from unittest.mock import patch, MagicMock
 import jwt
 import time
-from src.app import app, cache
+from src.app import app, cache, load_config
+import tempfile
+import os
+import toml
 
 class TestApp(unittest.TestCase):
 
     def setUp(self):
         app.testing = True
         self.app = app.test_client()
+
+        self.test_config = {
+            'server': {
+                'port': 5000,
+                'host': 'test.com',
+                'log_level': 'DEBUG'
+            },
+            'hosts': {
+                'example.com': {},
+                'test.com': {}
+            }
+        }
+
+        self.temp_config_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.toml')
+        toml.dump(self.test_config, self.temp_config_file)
+        self.temp_config_file.close()
+
+        config = load_config(self.temp_config_file.name)
+        app.config.update(config)
+        app.config['SERVER_NAME'] = self.test_config['server']['host']
+
         self.client_id_patcher = patch('src.app.DISCORD_CLIENT_ID', 'test_id')
         self.client_secret_patcher = patch('src.app.DISCORD_CLIENT_SECRET', 'test_secret')
-        self.allowed_hosts_patcher = patch('src.app.ALLOWED_HOSTS', ['example.com', 'test.com'])
+        self.allowed_hosts_patcher = patch('src.app.ALLOWED_HOSTS', list(self.test_config['hosts'].keys()))
 
         self.mock_client_id = self.client_id_patcher.start()
         self.mock_client_secret = self.client_secret_patcher.start()
         self.mock_allowed_hosts = self.allowed_hosts_patcher.start()
 
-        # Clear the cache before each test
         cache.clear()
-
 
     def tearDown(self):
         self.client_id_patcher.stop()
         self.client_secret_patcher.stop()
         self.allowed_hosts_patcher.stop()
+        os.unlink(self.temp_config_file.name)
 
     def test_login_valid_host(self):
-        response = self.app.get('/login?host=example.com&back=/foo')
-        self.assertEqual(response.status_code, 302)
-        self.assertTrue('client_id=test_id' in response.location)
-        self.assertTrue(response.location.startswith('https://discord.com/api/oauth2/authorize'))
+        with app.test_request_context():
+            response = self.app.get('/login?host=example.com&back=/foo')
+            self.assertEqual(response.status_code, 302)
+            self.assertTrue('client_id=test_id' in response.location)
+            self.assertTrue(response.location.startswith('https://discord.com/api/oauth2/authorize'))
 
     def test_login_invalid_host(self):
         response = self.app.get('/login?host=invalid.com&back=/foo')
@@ -41,24 +65,24 @@ class TestApp(unittest.TestCase):
     def test_callback_valid_host(self, mock_get, mock_post):
         mock_post.return_value = MagicMock(json=lambda: {'access_token': 'test_token'})
         mock_get.return_value = MagicMock(json=lambda: {'id': '123', 'username': 'testuser'})
-        response = self.app.get('/callback?code=test_code&state=example.com|/foo')
-        self.assertEqual(response.status_code, 302)
-        self.assertTrue(response.location.startswith('https://example.com/_auth?token='))
-        token = response.location.split('token=')[1].split('&')[0]
-        decoded_token = jwt.decode(token, 'test_secret', algorithms=["HS256"])
-        self.assertEqual(decoded_token['user']['id'], '123')
-        self.assertEqual(decoded_token['access_token'], 'test_token')
-        self.assertEqual(decoded_token['host'], 'example.com')
-
+        with app.test_request_context():
+            response = self.app.get('/callback?code=test_code&state=example.com|/foo')
+            self.assertEqual(response.status_code, 302)
+            self.assertTrue(response.location.startswith('https://example.com/_auth?token='))
+            token = response.location.split('token=')[1].split('&')[0]
+            decoded_token = jwt.decode(token, 'test_secret', algorithms=["HS256"])
+            self.assertEqual(decoded_token['user']['id'], '123')
+            self.assertEqual(decoded_token['access_token'], 'test_token')
+            self.assertEqual(decoded_token['host'], 'example.com')
 
     @patch('src.app.requests.post')
     @patch('src.app.requests.get')
     def test_callback_invalid_host(self, mock_get, mock_post):
         mock_post.return_value = MagicMock(json=lambda: {'access_token': 'test_token'})
         mock_get.return_value = MagicMock(json=lambda: {'id': '123', 'username': 'testuser'})
-        response = self.app.get('/callback?code=test_code&state=invalid.com|/foo')
-        self.assertEqual(response.status_code, 400)
-
+        with app.test_request_context():
+            response = self.app.get('/callback?code=test_code&state=invalid.com|/foo')
+            self.assertEqual(response.status_code, 400)
 
     def test_validate_valid_token(self):
         token = jwt.encode(
@@ -71,14 +95,12 @@ class TestApp(unittest.TestCase):
         self.assertEqual(response.data, b'OK')
         self.assertEqual(cache.get(f"{token}:example.com"), "OK")
 
-
     def test_validate_valid_token_cached(self):
         token = "cached_token"
         cache.set(f"{token}:example.com", "OK")
         response = self.app.get(f'/validate?token={token}&host=example.com')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data, b'OK')
-
 
     def test_validate_invalid_host_for_token(self):
         token = jwt.encode(
@@ -126,7 +148,6 @@ class TestApp(unittest.TestCase):
             headers={'Content-Type': 'application/x-www-form-urlencoded'}
         )
         self.assertIsNone(cache.get(f"{token}:example.com"))
-
 
 if __name__ == '__main__':
     unittest.main()

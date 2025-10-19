@@ -1,8 +1,7 @@
 Flask
 requests
 PyJWT
-python-dotenv
 cachelib
 pytest
 pytest-mock
-gunicorn
+toml
