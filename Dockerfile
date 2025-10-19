@@ -16,5 +16,8 @@ COPY src/ .
 # Make port 5000 available to the world outside this container
 EXPOSE 5000
 
+# Set the config file path
+ENV LOGIN_PORTAL_CONFIG=/app/login-portal.toml
+
 # Run app.py when the container launches
 CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:5000", "app:app"]

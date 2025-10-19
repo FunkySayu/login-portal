@@ -6,3 +6,4 @@ cachelib
 pytest
 pytest-mock
 gunicorn
+tomli

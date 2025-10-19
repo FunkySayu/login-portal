@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch, MagicMock
 import jwt
 import time
-from src.app import app, cache
+from src.app import app, cache, config
 
 class TestApp(unittest.TestCase):
 
@@ -11,11 +11,20 @@ class TestApp(unittest.TestCase):
         self.app = app.test_client()
         self.client_id_patcher = patch('src.app.DISCORD_CLIENT_ID', 'test_id')
         self.client_secret_patcher = patch('src.app.DISCORD_CLIENT_SECRET', 'test_secret')
-        self.allowed_hosts_patcher = patch('src.app.ALLOWED_HOSTS', ['example.com', 'test.com'])
 
         self.mock_client_id = self.client_id_patcher.start()
         self.mock_client_secret = self.client_secret_patcher.start()
-        self.mock_allowed_hosts = self.allowed_hosts_patcher.start()
+
+        self.config_patcher = patch.dict('src.app.config', {
+            "server": {
+                "host": "login.example.com"
+            },
+            "hosts": {
+                "example.com": {},
+                "test.com": {}
+            }
+        }, clear=True)
+        self.mock_config = self.config_patcher.start()
 
         # Clear the cache before each test
         cache.clear()
@@ -24,12 +33,13 @@ class TestApp(unittest.TestCase):
     def tearDown(self):
         self.client_id_patcher.stop()
         self.client_secret_patcher.stop()
-        self.allowed_hosts_patcher.stop()
+        self.config_patcher.stop()
 
     def test_login_valid_host(self):
         response = self.app.get('/login?host=example.com&back=/foo')
         self.assertEqual(response.status_code, 302)
         self.assertTrue('client_id=test_id' in response.location)
+        self.assertTrue('redirect_uri=https%3A%2F%2Flogin.example.com%2Fcallback' in response.location)
         self.assertTrue(response.location.startswith('https://discord.com/api/oauth2/authorize'))
 
     def test_login_invalid_host(self):
