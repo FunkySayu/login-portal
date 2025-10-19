@@ -35,7 +35,7 @@ def login():
         return "Invalid host", 400
     back = request.args.get("back")
     state = f"{host}|{back}"
-    redirect_uri = url_for('callback', _external=True)
+    redirect_uri = url_for('callback', _external=True, _scheme='https')
     return redirect(
         f"{DISCORD_API_BASE_URL}/oauth2/authorize?client_id={DISCORD_CLIENT_ID}&redirect_uri={redirect_uri}&response_type=code&scope=identify&state={state}"
     )
@@ -48,7 +48,7 @@ def callback():
     if host not in ALLOWED_HOSTS:
         return "Invalid host", 400
 
-    redirect_uri = url_for('callback', _external=True)
+    redirect_uri = url_for('callback', _external=True, _scheme='https')
     data = {
         "client_id": DISCORD_CLIENT_ID,
         "client_secret": DISCORD_CLIENT_SECRET,
@@ -138,6 +138,6 @@ if __name__ == "__main__":
     DISCORD_CLIENT_SECRET = get_secret("discord_client_secret")
     ALLOWED_HOSTS = list(config.get('hosts', {}).keys())
 
-    app.config['SERVER_NAME'] = f"{config['server']['host']}:{config['server']['port']}"
+    app.config['SERVER_NAME'] = f"{config['server']['host']}"
 
-    app.run(host='127.0.0.1', port=config['server']['port'])
+    app.run(host="0.0.0.0", port=config['server']['port'])
