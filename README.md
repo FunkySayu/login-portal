@@ -26,7 +26,7 @@ Create a simple redirection to the portal (exposed by default on port 3322).
 
 <details>
 
-<summary>`/etc/nginx/sites-available/$LOGIN_HOSTNAME.conf`</summary>
+<summary>/etc/nginx/sites-available/$LOGIN_HOSTNAME.conf</summary>
 
 ```nginx
 server {
@@ -52,7 +52,7 @@ nginx configuration.
 
 <details>
 
-<summary>`/etc/nginx/snippets/sso_login.conf`</summary>
+<summary>/etc/nginx/snippets/sso_login.conf</summary>
 
 ```nginx
 # Provide route handlers to support SSO using the auth JS module.
@@ -118,7 +118,7 @@ Create the auth JavaScript internal handlers.
 
 <details>
 
-<summary>`/etc/nginx/scripts/auth.js`</summary>
+<summary>/etc/nginx/scripts/auth.js</summary>
 
 ```js
 import crypto from 'crypto';
@@ -235,7 +235,7 @@ module:
 
 <details>
 
-<summary>`/etc/nginx/sites-available/$CLIENT_HOSTNAME.conf`</summary>
+<summary>/etc/nginx/sites-available/$CLIENT_HOSTNAME.conf</summary>
 
 ```nginx
 server {
