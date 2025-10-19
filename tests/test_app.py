@@ -2,7 +2,9 @@ import unittest
 from unittest.mock import patch, MagicMock
 import jwt
 import time
-from src.app import app, cache, config
+import tempfile
+import os
+from src.app import app, cache, load_config
 
 class TestApp(unittest.TestCase):
 
@@ -11,20 +13,23 @@ class TestApp(unittest.TestCase):
         self.app = app.test_client()
         self.client_id_patcher = patch('src.app.DISCORD_CLIENT_ID', 'test_id')
         self.client_secret_patcher = patch('src.app.DISCORD_CLIENT_SECRET', 'test_secret')
+        self.env_patcher = patch.dict(os.environ, {"LOGIN_PORTAL_CONFIG": ""}, clear=True)
 
         self.mock_client_id = self.client_id_patcher.start()
         self.mock_client_secret = self.client_secret_patcher.start()
+        self.mock_env = self.env_patcher.start()
 
-        self.config_patcher = patch.dict('src.app.config', {
-            "server": {
-                "host": "login.example.com"
-            },
-            "hosts": {
-                "example.com": {},
-                "test.com": {}
-            }
-        }, clear=True)
-        self.mock_config = self.config_patcher.start()
+        self.config_file = tempfile.NamedTemporaryFile(mode='w', delete=False)
+        self.config_file.write("""
+[server]
+host = "login.example.com"
+
+[hosts]
+"example.com" = {}
+"test.com" = {}
+""")
+        self.config_file.close()
+        load_config(self.config_file.name)
 
         # Clear the cache before each test
         cache.clear()
@@ -33,7 +38,8 @@ class TestApp(unittest.TestCase):
     def tearDown(self):
         self.client_id_patcher.stop()
         self.client_secret_patcher.stop()
-        self.config_patcher.stop()
+        self.env_patcher.stop()
+        os.unlink(self.config_file.name)
 
     def test_login_valid_host(self):
         response = self.app.get('/login?host=example.com&back=/foo')

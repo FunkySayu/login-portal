@@ -3,8 +3,9 @@ import jwt
 import time
 import argparse
 import tomli
-from urllib.parse import quote
-from flask import Flask, request, redirect
+from typing import Optional
+from urllib.parse import urlencode
+from flask import Flask, request, redirect, url_for
 import requests
 from cachelib import SimpleCache
 
@@ -12,27 +13,25 @@ app = Flask(__name__)
 cache = SimpleCache()
 config = {}
 
-def get_secret(secret_name, default=None):
+def get_secret(secret_name: str, default: Optional[str] = None) -> Optional[str]:
     try:
         with open(f'/run/secrets/{secret_name}', 'r') as secret_file:
             return secret_file.read().strip()
     except IOError:
         return os.getenv(secret_name.upper(), default)
 
-def load_config(config_path=None):
-    if not config_path:
-        config_path = os.getenv("LOGIN_PORTAL_CONFIG")
-    if not config_path:
-        raise ValueError("LOGIN_PORTAL_CONFIG environment variable not set")
+def load_config(config_path: str) -> None:
     with open(config_path, "rb") as f:
-        config.update(tomli.load(f))
+        new_config = tomli.load(f)
+        config.update(new_config)
+    app.config["SERVER_NAME"] = config["server"]["host"]
+
+if os.getenv("LOGIN_PORTAL_CONFIG"):
+    load_config(os.getenv("LOGIN_PORTAL_CONFIG"))
 
 DISCORD_CLIENT_ID = get_secret("discord_client_id")
 DISCORD_CLIENT_SECRET = get_secret("discord_client_secret")
 DISCORD_API_BASE_URL = "https://discord.com/api"
-
-def get_discord_redirect_uri():
-    return f"https://{config['server']['host']}/callback"
 
 @app.route("/login")
 def login():
@@ -41,10 +40,14 @@ def login():
         return "Invalid host", 400
     back = request.args.get("back")
     state = f"{host}|{back}"
-    redirect_uri = quote(get_discord_redirect_uri(), safe='')
-    return redirect(
-        f"{DISCORD_API_BASE_URL}/oauth2/authorize?client_id={DISCORD_CLIENT_ID}&redirect_uri={redirect_uri}&response_type=code&scope=identify&state={state}"
-    )
+    params = {
+        "client_id": DISCORD_CLIENT_ID,
+        "redirect_uri": url_for('callback', _external=True, _scheme='https'),
+        "response_type": "code",
+        "scope": "identify",
+        "state": state,
+    }
+    return redirect(f"{DISCORD_API_BASE_URL}/oauth2/authorize?{urlencode(params)}")
 
 @app.route("/callback")
 def callback():
@@ -59,7 +62,7 @@ def callback():
         "client_secret": DISCORD_CLIENT_SECRET,
         "grant_type": "authorization_code",
         "code": code,
-        "redirect_uri": get_discord_redirect_uri(),
+        "redirect_uri": url_for('callback', _external=True, _scheme='https'),
         "scope": "identify",
     }
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
@@ -136,5 +139,3 @@ if __name__ == "__main__":
     args = parser.parse_args()
     load_config(args.config)
     app.run(port=config["server"]["port"])
-else:
-    load_config()
