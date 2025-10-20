@@ -35,18 +35,15 @@ class TestApp(unittest.TestCase):
 
         self.client_id_patcher = patch('src.app.DISCORD_CLIENT_ID', 'test_id')
         self.client_secret_patcher = patch('src.app.DISCORD_CLIENT_SECRET', 'test_secret')
-        self.allowed_hosts_patcher = patch('src.app.ALLOWED_HOSTS', list(self.test_config['hosts'].keys()))
 
         self.mock_client_id = self.client_id_patcher.start()
         self.mock_client_secret = self.client_secret_patcher.start()
-        self.mock_allowed_hosts = self.allowed_hosts_patcher.start()
 
         cache.clear()
 
     def tearDown(self):
         self.client_id_patcher.stop()
         self.client_secret_patcher.stop()
-        self.allowed_hosts_patcher.stop()
         os.unlink(self.temp_config_file.name)
 
     def test_login_valid_host(self):
@@ -151,3 +148,93 @@ class TestApp(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestAppAuth(unittest.TestCase):
+
+    def setUp(self):
+        app.testing = True
+        self.app = app.test_client()
+
+        self.test_config = {
+            'server': {
+                'port': 5000,
+                'host': 'test.com',
+                'log_level': 'DEBUG'
+            },
+            'hosts': {
+                'example.com': {
+                    'allowed_discord_user_ids': [123, 456]
+                },
+                'test.com': {}
+            }
+        }
+
+        self.temp_config_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.toml')
+        toml.dump(self.test_config, self.temp_config_file)
+        self.temp_config_file.close()
+
+        config = load_config(self.temp_config_file.name)
+        app.config.update(config)
+        app.config['SERVER_NAME'] = self.test_config['server']['host']
+
+        self.client_id_patcher = patch('src.app.DISCORD_CLIENT_ID', 'test_id')
+        self.client_secret_patcher = patch('src.app.DISCORD_CLIENT_SECRET', 'test_secret')
+
+        self.mock_client_id = self.client_id_patcher.start()
+        self.mock_client_secret = self.client_secret_patcher.start()
+
+        cache.clear()
+
+    def tearDown(self):
+        self.client_id_patcher.stop()
+        self.client_secret_patcher.stop()
+        os.unlink(self.temp_config_file.name)
+
+    @patch('src.app.requests.post')
+    @patch('src.app.requests.get')
+    def test_callback_allowed_user(self, mock_get, mock_post):
+        mock_post.return_value = MagicMock(json=lambda: {'access_token': 'test_token'})
+        mock_get.return_value = MagicMock(json=lambda: {'id': '123', 'username': 'testuser'})
+        with app.test_request_context():
+            response = self.app.get('/callback?code=test_code&state=example.com|/foo')
+            self.assertEqual(response.status_code, 302)
+
+    @patch('src.app.requests.post')
+    @patch('src.app.requests.get')
+    def test_callback_disallowed_user(self, mock_get, mock_post):
+        mock_post.return_value = MagicMock(json=lambda: {'access_token': 'test_token'})
+        mock_get.return_value = MagicMock(json=lambda: {'id': '789', 'username': 'testuser'})
+        with app.test_request_context():
+            response = self.app.get('/callback?code=test_code&state=example.com|/foo')
+            self.assertEqual(response.status_code, 403)
+
+    def test_validate_allowed_user(self):
+        token = jwt.encode(
+            {"user": {"id": "123"}, "host": "example.com", "exp": time.time() + 3600},
+            'test_secret',
+            algorithm="HS256",
+        )
+        response = self.app.get(f'/validate?token={token}&host=example.com')
+        self.assertEqual(response.status_code, 200)
+
+    def test_validate_disallowed_user(self):
+        token = jwt.encode(
+            {"user": {"id": "789"}, "host": "example.com", "exp": time.time() + 3600},
+            'test_secret',
+            algorithm="HS256",
+        )
+        response = self.app.get(f'/validate?token={token}&host=example.com')
+        self.assertEqual(response.status_code, 403)
+
+    @patch('src.app.requests.post')
+    def test_logout_clears_cache(self, mock_post):
+        token = jwt.encode(
+            {"user": {"id": "123"}, "access_token": "test_access_token", "host": "example.com", "exp": time.time() + 3600},
+            'test_secret',
+            algorithm="HS256",
+        )
+        cache_key = f"{token}:example.com"
+        cache.set(cache_key, "OK")
+        self.app.get(f'/logout?token={token}')
+        self.assertIsNone(cache.get(cache_key))

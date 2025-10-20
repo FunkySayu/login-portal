@@ -13,7 +13,6 @@ cache = SimpleCache()
 
 DISCORD_CLIENT_ID = None
 DISCORD_CLIENT_SECRET = None
-ALLOWED_HOSTS = None
 DISCORD_API_BASE_URL = "https://discord.com/api"
 
 def load_config(config_path: str) -> dict:
@@ -31,7 +30,7 @@ def get_secret(secret_name, default=None):
 @app.route("/login")
 def login():
     host = request.args.get("host")
-    if host not in ALLOWED_HOSTS:
+    if host not in app.config.get('hosts', {}):
         return "Invalid host", 400
     back = request.args.get("back")
     state = f"{host}|{back}"
@@ -45,7 +44,7 @@ def callback():
     code = request.args.get("code")
     state = request.args.get("state")
     host, back = state.split("|")
-    if host not in ALLOWED_HOSTS:
+    if host not in app.config.get('hosts', {}):
         return "Invalid host", 400
 
     redirect_uri = url_for('callback', _external=True, _scheme='https')
@@ -65,6 +64,11 @@ def callback():
     headers = {"Authorization": f"Bearer {access_token}"}
     response = requests.get(f"{DISCORD_API_BASE_URL}/users/@me", headers=headers)
     user = response.json()
+
+    host_config = app.config.get('hosts', {}).get(host, {})
+    allowed_users = host_config.get("allowed_discord_user_ids")
+    if allowed_users and int(user['id']) not in allowed_users:
+        return "User not allowed for this host", 403
 
     token = jwt.encode(
         {"user": user, "access_token": access_token, "host": host, "exp": time.time() + 3600},
@@ -89,7 +93,13 @@ def validate():
         if decoded_token.get("host") != host:
             return "Invalid host for this token", 401
 
-        cache.set(cache_key, "OK", timeout=600)
+        user = decoded_token.get("user")
+        host_config = app.config.get('hosts', {}).get(host, {})
+        allowed_users = host_config.get("allowed_discord_user_ids")
+        if allowed_users and int(user['id']) not in allowed_users:
+            return "User not allowed for this host", 403
+
+        cache.set(cache_key, "OK", timeout=60)
         return "OK", 200
     except jwt.ExpiredSignatureError:
         return "Expired token", 401
@@ -131,12 +141,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     config = load_config(args.config)
+    app.config.update(config)
 
     logging.basicConfig(level=config['server']['log_level'])
 
     DISCORD_CLIENT_ID = get_secret("discord_client_id")
     DISCORD_CLIENT_SECRET = get_secret("discord_client_secret")
-    ALLOWED_HOSTS = list(config.get('hosts', {}).keys())
 
     app.config['SERVER_NAME'] = f"{config['server']['host']}"
 
